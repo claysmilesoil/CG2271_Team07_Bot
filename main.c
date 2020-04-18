@@ -20,12 +20,12 @@
 #define PTB0_Pin 0 // right back
 #define PTB1_Pin 1
 
-/* buzzer-related variables */
+/* buzzer-related constants */
 #define PTB2_Pin 2 // buzzer pwm
 #define QUARTERBEAT 275
 #define NOTEDELAY 30
 
-/* UART-related variables */
+/* UART-related constants */
 #define UART_RX_PORTE23 23
 #define UART2_INT_PRIO 128
 #define BAUD_RATE 9600
@@ -41,6 +41,10 @@
 #define MOVE_BACKWARD 1
 #define MOVE_LEFT 2
 #define MOVE_RIGHT 3
+
+/* misc constants*/
+#define LEFTDUTYCYCLE 0.8
+#define RIGHTDUTYCYCLE 0.75
 
 /* synchronization related variables */
 #define MSG_COUNT 1
@@ -156,15 +160,15 @@ static float durationChoose[] = {4, 2, 1, 0.5, 0.25};
 	SIM->SOPT2 &= ~SIM_SOPT2_TPMSRC_MASK;
 	SIM->SOPT2 |= SIM_SOPT2_TPMSRC(1); // clock source
 	
-	TPM0->MOD = 149; 
-	TPM1->MOD = 149;
+	TPM0->MOD = 100; 
+	TPM1->MOD = 100;
 	
 	TPM0->SC &= ~((TPM_SC_CMOD_MASK) | (TPM_SC_PS_MASK));
-	TPM0->SC |= (TPM_SC_CMOD(1) | TPM_SC_PS(5));
+	TPM0->SC |= (TPM_SC_CMOD(1) | TPM_SC_PS(4));
 	TPM0->SC &= ~TPM_SC_CPWMS_MASK;
 	
 	TPM1->SC &= ~((TPM_SC_CMOD_MASK) | (TPM_SC_PS_MASK));
-	TPM1->SC |= (TPM_SC_CMOD(1) | TPM_SC_PS(5));
+	TPM1->SC |= (TPM_SC_CMOD(1) | TPM_SC_PS(4));
 	TPM1->SC &= ~TPM_SC_CPWMS_MASK;
 	
 	TPM0_C0SC &= ~((TPM_CnSC_ELSB_MASK) | (TPM_CnSC_ELSA_MASK) | (TPM_CnSC_MSB_MASK) | (TPM_CnSC_MSA_MASK));
@@ -204,7 +208,7 @@ void initBuzzer(){
 	PTB->PDDR |= MASK(18);
 	PTB->PSOR = MASK(18); // for debug */
 	
-	PORTB->PCR[PTB2_Pin] &= ~PORT_PCR_MUX_MASK; // tpm0 ch2
+	PORTB->PCR[PTB2_Pin] &= ~PORT_PCR_MUX_MASK; // tpm2 ch0
 	PORTB->PCR[PTB2_Pin] |= PORT_PCR_MUX(3);
 	
 	SIM_SCGC6 |= SIM_SCGC6_TPM2_MASK;
@@ -268,86 +272,104 @@ void ledControl(int position, led_state s) {
 }
 
 void moveForward() {
-	TPM0_C0V += (TPM0->MOD / 2);
+	TPM0_C0V += (TPM0->MOD * LEFTDUTYCYCLE);
 	TPM0_C2V = 0;
-	TPM0_C3V += (TPM0->MOD / 2);
+	TPM0_C3V += (TPM0->MOD * LEFTDUTYCYCLE);
 	TPM0_C1V = 0;
-	TPM0_C4V += (TPM0->MOD / 2);
+	TPM0_C4V += (TPM0->MOD * RIGHTDUTYCYCLE);
 	TPM0_C5V = 0;
-	TPM1_C0V += (TPM1->MOD / 2);
+	TPM1_C0V += (TPM1->MOD * RIGHTDUTYCYCLE);
 	TPM1_C1V = 0;
 }
 
 void stopForward() {
-	TPM0_C0V -= (TPM0->MOD / 2);
-	TPM0_C3V -= (TPM0->MOD / 2);
-	TPM0_C4V -= (TPM0->MOD / 2);
-	TPM1_C0V -= (TPM1->MOD / 2);
+	TPM0_C0V -= (TPM0->MOD * LEFTDUTYCYCLE);
+	TPM0_C3V -= (TPM0->MOD * LEFTDUTYCYCLE);
+	TPM0_C4V -= (TPM0->MOD * RIGHTDUTYCYCLE);
+	TPM1_C0V -= (TPM1->MOD * RIGHTDUTYCYCLE);
+	//TPM0_C0V = 0;
+	//TPM0_C3V = 0;
+	//TPM0_C4V = 0;
+	//TPM1_C0V = 0;
 }
 
 void moveBackward() {
 	TPM0_C0V = 0;
-	TPM0_C2V += (TPM0->MOD / 2);
+	TPM0_C2V = (TPM0->MOD * LEFTDUTYCYCLE);
 	TPM0_C3V = 0;
-	TPM0_C1V += (TPM0->MOD / 2);
+	TPM0_C1V = (TPM0->MOD * LEFTDUTYCYCLE);
 	TPM0_C4V = 0;
-	TPM0_C5V += (TPM0->MOD / 2);
+	TPM0_C5V = (TPM0->MOD * RIGHTDUTYCYCLE);
 	TPM1_C0V = 0;
-	TPM1_C1V += (TPM1->MOD / 2);
+	TPM1_C1V = (TPM1->MOD * RIGHTDUTYCYCLE);
 }
 
 void stopBackward() {
-	TPM0_C2V -= (TPM0->MOD / 2);
-	TPM0_C1V -= (TPM0->MOD / 2);
-	TPM0_C5V -= (TPM0->MOD / 2);
-	TPM1_C1V -= (TPM1->MOD / 2);
+	TPM0_C2V -= (TPM0->MOD * LEFTDUTYCYCLE);
+	TPM0_C1V -= (TPM0->MOD * LEFTDUTYCYCLE);
+	TPM0_C5V -= (TPM0->MOD * RIGHTDUTYCYCLE);
+	TPM1_C1V -= (TPM1->MOD * RIGHTDUTYCYCLE);
+	//TPM0_C2V = 0;
+	//TPM0_C1V = 0;
+	//TPM0_C5V = 0;
+	//TPM1_C1V = 0;
 }
 
 void moveLeft() {
 	if (isBackward) {
 		TPM0_C4V = 0;
-		TPM0_C5V += (TPM0->MOD / 3);
 		TPM1_C0V = 0;
-		TPM1_C1V += (TPM1->MOD / 3);
+		//if (isMoving) {
+			//TPM0_C5V += (TPM0->MOD);
+			//TPM1_C1V += (TPM1->MOD);
+		//} else {
+		TPM0_C5V += (TPM0->MOD * RIGHTDUTYCYCLE);
+		TPM1_C1V += (TPM1->MOD * RIGHTDUTYCYCLE); // TODO: what happens if CnV > MOD?
+		//}
 	} else {
-		TPM0_C4V += (TPM0->MOD / 3);
 		TPM0_C5V = 0;
-		TPM1_C0V += (TPM1->MOD / 3);
-		TPM1_C1V = 0;
+		TPM1_C1V = 0;	
+		//if (isMoving) {
+			//TPM0_C4V += (TPM0->MOD);
+			//TPM1_C0V += (TPM1->MOD);
+		//} else {
+			TPM0_C4V += (TPM0->MOD * RIGHTDUTYCYCLE);
+			TPM1_C0V += (TPM1->MOD * RIGHTDUTYCYCLE);
+		//}
 	}
 }
 
 void stopLeft() {
 		if (isBackward) {
-		TPM0_C5V -= (TPM0->MOD / 3);
-		TPM1_C1V -= (TPM1->MOD / 3);
+		TPM0_C5V -= (TPM0->MOD * RIGHTDUTYCYCLE);
+		TPM1_C1V -= (TPM1->MOD * RIGHTDUTYCYCLE);
 	} else {
-		TPM0_C4V -= (TPM0->MOD / 3);
-		TPM1_C0V -= (TPM1->MOD / 3);
+		TPM0_C4V -= (TPM0->MOD * RIGHTDUTYCYCLE);
+		TPM1_C0V -= (TPM1->MOD * RIGHTDUTYCYCLE);
 	}
 }
 
 void moveRight () {
 	if (isBackward) {
 		TPM0_C0V = 0;
-		TPM0_C2V += (TPM0->MOD / 3);
+		TPM0_C2V += (TPM0->MOD * LEFTDUTYCYCLE);
 		TPM0_C3V = 0;
-		TPM0_C1V += (TPM0->MOD / 3);
+		TPM0_C1V += (TPM0->MOD * LEFTDUTYCYCLE);
 	} else {
-		TPM0_C0V += (TPM0->MOD / 3);
+		TPM0_C0V += (TPM0->MOD * LEFTDUTYCYCLE);
 		TPM0_C2V = 0;
-		TPM0_C3V += (TPM0->MOD / 3);
+		TPM0_C3V += (TPM0->MOD * LEFTDUTYCYCLE);
 		TPM0_C1V = 0;
 	}
 }
 
 void stopRight() {
 	if (isBackward) {
-		TPM0_C2V -= (TPM0->MOD / 3);
-		TPM0_C1V -= (TPM0->MOD / 3);
+		TPM0_C2V -= (TPM0->MOD * LEFTDUTYCYCLE);
+		TPM0_C1V -= (TPM0->MOD * LEFTDUTYCYCLE);
 	} else {
-		TPM0_C0V -= (TPM0->MOD / 3);
-		TPM0_C3V -= (TPM0->MOD / 3);
+		TPM0_C0V -= (TPM0->MOD * LEFTDUTYCYCLE);
+		TPM0_C3V -= (TPM0->MOD * LEFTDUTYCYCLE);
 	}
 }
 
@@ -373,8 +395,9 @@ void tBrain (void *argument) {
 				isBackward = !isBackward;
 			}
 	
-			osMessageQueuePut(motorMsg, &rx_data, NULL, 0);
-		}
+			osMessageQueuePut(motorMsg, &rx_data, NULL, 0); 
+		} 
+		//isMoving = !isMoving;
 	}
 }
 
@@ -393,7 +416,7 @@ void tMotorControl (void *argument) {
 			} else if (DIRECTION_MASK(rx) == MOVE_RIGHT) {
 				moveRight();
 			}
-		} else if (!MOVE_MASK(rx)) {
+		} else {
 			if (DIRECTION_MASK(rx) == MOVE_FORWARD) {
 				stopForward();
 			} else if (DIRECTION_MASK(rx) == MOVE_BACKWARD) {
@@ -404,20 +427,21 @@ void tMotorControl (void *argument) {
 				stopRight();
 			}
 		} 
+		//moveForward();
 	}
 }
 
 void tLEDGreen (void *argument) {
+	int j = 0;
 	for (;;) {
 		while (isMoving) {
 			for (int i = 0; i < 8; i++) {
 				ledControl(green_pos[i], OFF);
 			}
-			for (int i = 0; i < 8; i++) {
-				ledControl(green_pos[i], ON);
-				osDelay(100);
-				ledControl(green_pos[i], OFF);
-			}
+			j = (j + 1) % 8;
+			ledControl(green_pos[j], ON);
+			osDelay(100);
+			ledControl(green_pos[j], OFF);
 		} 
 		while(!isMoving){
 			for (int i = 0; i < 8; i++) {
@@ -445,9 +469,9 @@ void tLEDRed (void *argument) {
 }
 
 void tAudio (void *argument) {
-	int length = sizeof(intro)/sizeof(intro[0]);
+	int introLength = sizeof(intro)/sizeof(intro[0]);
   for (;;) {
-		for (int i = 0; i < length; i++) {
+		for (int i = 0; i < introLength; i++) {
 			TPM0->MOD = notes[intro[i]];
 			TPM0_C2V = notes[intro[i]] / 2;
 			osDelay(QUARTERBEAT*durationChoose[introDuration[i]]);
@@ -490,8 +514,8 @@ int main (void) {
 	motorMsg = osMessageQueueNew(MSG_COUNT, sizeof(uint8_t), NULL);
   osThreadNew(tBrain, NULL, &normal1);
 	osThreadNew(tMotorControl, NULL, NULL);
-	//osThreadNew(tLEDRed, NULL, NULL);
-	//osThreadNew(tLEDGreen, NULL, NULL);
+	osThreadNew(tLEDRed, NULL, NULL);
+	osThreadNew(tLEDGreen, NULL, NULL);
 	//osThreadNew(tAudio, NULL, NULL);	
   osKernelStart();                      
   for (;;) {}
