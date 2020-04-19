@@ -44,14 +44,15 @@
 
 /* misc constants*/
 #define LEFTDUTYCYCLE 0.8
-#define RIGHTDUTYCYCLE 0.75
+#define RIGHTDUTYCYCLE 0.85
 
-/* synchronization related variables */
+/* synchronization related constants and variables */
 #define MSG_COUNT 1
 
 uint8_t rx_data = 0x00;
 
 osSemaphoreId_t dataIn;
+osSemaphoreId_t connectIn;
 
 const osThreadAttr_t normal1 = {
 	.priority = osPriorityNormal1
@@ -62,6 +63,9 @@ osMessageQueueId_t motorMsg;
 /* other variables and enums */
 volatile bool isMoving = false;
 volatile bool isBackward = false;
+bool isEstablishConnection = false;
+bool isIntroPlayed = false;
+volatile bool isEnd = false;
 
 typedef enum {OFF, ON} led_state;
 
@@ -100,6 +104,22 @@ static uint8_t introDuration[] = {
 	3,3,2,3,3,2, 3,3,2,3,3,2, 3,3,2,3,3,2, 3,3,2,3,3,2,
 	1,1, 1,2,4,4,4,4
 };
+
+static uint32_t battle[] = {
+	0,1,2,3,4,5,7
+};
+
+static uint8_t battleDuration[] = {
+	1,1,1,1,1,1,1
+};
+
+static uint32_t victory[] = {
+	7,5,4,3,2,1,0
+};
+
+static uint8_t victoryDuration[] = {
+	1,1,1,1,1,1,1
+}; 
 
 static float durationChoose[] = {4, 2, 1, 0.5, 0.25};
 
@@ -287,10 +307,6 @@ void stopForward() {
 	TPM0_C3V -= (TPM0->MOD * LEFTDUTYCYCLE);
 	TPM0_C4V -= (TPM0->MOD * RIGHTDUTYCYCLE);
 	TPM1_C0V -= (TPM1->MOD * RIGHTDUTYCYCLE);
-	//TPM0_C0V = 0;
-	//TPM0_C3V = 0;
-	//TPM0_C4V = 0;
-	//TPM1_C0V = 0;
 }
 
 void moveBackward() {
@@ -309,43 +325,37 @@ void stopBackward() {
 	TPM0_C1V -= (TPM0->MOD * LEFTDUTYCYCLE);
 	TPM0_C5V -= (TPM0->MOD * RIGHTDUTYCYCLE);
 	TPM1_C1V -= (TPM1->MOD * RIGHTDUTYCYCLE);
-	//TPM0_C2V = 0;
-	//TPM0_C1V = 0;
-	//TPM0_C5V = 0;
-	//TPM1_C1V = 0;
 }
 
 void moveLeft() {
 	if (isBackward) {
 		TPM0_C4V = 0;
 		TPM1_C0V = 0;
-		//if (isMoving) {
-			//TPM0_C5V += (TPM0->MOD);
-			//TPM1_C1V += (TPM1->MOD);
-		//} else {
 		TPM0_C5V += (TPM0->MOD * RIGHTDUTYCYCLE);
-		TPM1_C1V += (TPM1->MOD * RIGHTDUTYCYCLE); // TODO: what happens if CnV > MOD?
-		//}
+		TPM1_C1V += (TPM1->MOD * RIGHTDUTYCYCLE);
+		TPM0_C0V += (TPM0->MOD * LEFTDUTYCYCLE);
+		TPM0_C3V += (TPM0->MOD * LEFTDUTYCYCLE);
 	} else {
 		TPM0_C5V = 0;
 		TPM1_C1V = 0;	
-		//if (isMoving) {
-			//TPM0_C4V += (TPM0->MOD);
-			//TPM1_C0V += (TPM1->MOD);
-		//} else {
-			TPM0_C4V += (TPM0->MOD * RIGHTDUTYCYCLE);
-			TPM1_C0V += (TPM1->MOD * RIGHTDUTYCYCLE);
-		//}
+		TPM0_C4V += (TPM0->MOD * RIGHTDUTYCYCLE);
+		TPM1_C0V += (TPM1->MOD * RIGHTDUTYCYCLE);
+		TPM0_C2V += (TPM0->MOD * LEFTDUTYCYCLE);
+		TPM0_C1V += (TPM0->MOD * LEFTDUTYCYCLE);
 	}
 }
 
 void stopLeft() {
-		if (isBackward) {
+	if (isBackward) {
 		TPM0_C5V -= (TPM0->MOD * RIGHTDUTYCYCLE);
 		TPM1_C1V -= (TPM1->MOD * RIGHTDUTYCYCLE);
+		TPM0_C0V -= (TPM0->MOD * LEFTDUTYCYCLE);
+		TPM0_C3V -= (TPM0->MOD * LEFTDUTYCYCLE);
 	} else {
 		TPM0_C4V -= (TPM0->MOD * RIGHTDUTYCYCLE);
 		TPM1_C0V -= (TPM1->MOD * RIGHTDUTYCYCLE);
+		TPM0_C2V -= (TPM0->MOD * LEFTDUTYCYCLE);
+		TPM0_C1V -= (TPM0->MOD * LEFTDUTYCYCLE);
 	}
 }
 
@@ -355,11 +365,15 @@ void moveRight () {
 		TPM0_C2V += (TPM0->MOD * LEFTDUTYCYCLE);
 		TPM0_C3V = 0;
 		TPM0_C1V += (TPM0->MOD * LEFTDUTYCYCLE);
+		TPM0_C4V += (TPM0->MOD * RIGHTDUTYCYCLE);
+		TPM1_C0V += (TPM1->MOD * RIGHTDUTYCYCLE);
 	} else {
 		TPM0_C0V += (TPM0->MOD * LEFTDUTYCYCLE);
 		TPM0_C2V = 0;
 		TPM0_C3V += (TPM0->MOD * LEFTDUTYCYCLE);
 		TPM0_C1V = 0;
+		TPM0_C5V += (TPM0->MOD * RIGHTDUTYCYCLE);
+		TPM1_C1V += (TPM1->MOD * RIGHTDUTYCYCLE);
 	}
 }
 
@@ -367,9 +381,13 @@ void stopRight() {
 	if (isBackward) {
 		TPM0_C2V -= (TPM0->MOD * LEFTDUTYCYCLE);
 		TPM0_C1V -= (TPM0->MOD * LEFTDUTYCYCLE);
+		TPM0_C4V -= (TPM0->MOD * RIGHTDUTYCYCLE);
+		TPM1_C0V -= (TPM1->MOD * RIGHTDUTYCYCLE);
 	} else {
 		TPM0_C0V -= (TPM0->MOD * LEFTDUTYCYCLE);
 		TPM0_C3V -= (TPM0->MOD * LEFTDUTYCYCLE);
+		TPM0_C5V -= (TPM0->MOD * RIGHTDUTYCYCLE);
+		TPM1_C1V -= (TPM1->MOD * RIGHTDUTYCYCLE);
 	}
 }
 
@@ -380,11 +398,15 @@ void tBrain (void *argument) {
   for (;;) {
 		osSemaphoreAcquire(dataIn, osWaitForever);
 		if (START_MUSIC(rx_data)) {
-			
+			osSemaphoreRelease(connectIn);
+			isEstablishConnection = true;
+			isIntroPlayed = false;
+			isEnd = false;
 		} else if (RUN_MUSIC(rx_data)) {
-			
+			isIntroPlayed = true; // this is for debugging
+			isEnd = false;
 		} else if (END_MUSIC(rx_data)) {
-			
+			isEnd = true;
 		} else {
 			if (MOVE_MASK(rx_data)) {
 				isMoving = true;
@@ -397,7 +419,6 @@ void tBrain (void *argument) {
 	
 			osMessageQueuePut(motorMsg, &rx_data, NULL, 0); 
 		} 
-		//isMoving = !isMoving;
 	}
 }
 
@@ -405,7 +426,7 @@ void tMotorControl (void *argument) {
 	uint8_t rx;
   for (;;) {
 		osMessageQueueGet(motorMsg, &rx, NULL, osWaitForever);
-		// TODO: input protection?
+
 		if (MOVE_MASK(rx)) {
 			if (DIRECTION_MASK(rx) == MOVE_FORWARD) {
 				moveForward();
@@ -427,13 +448,28 @@ void tMotorControl (void *argument) {
 				stopRight();
 			}
 		} 
-		//moveForward();
 	}
 }
 
 void tLEDGreen (void *argument) {
 	int j = 0;
 	for (;;) {
+		if(isEstablishConnection) {
+			int blinkCount = 0;
+			while (blinkCount < 2) {
+				for (int i = 0; i < 8; i++) {
+					ledControl(green_pos[i], ON);
+				}
+				osDelay(500);
+				for (int i = 0; i < 8; i++) {
+					ledControl(green_pos[i], OFF);
+				}
+				osDelay(500);
+				blinkCount++;
+			}
+			isEstablishConnection = false;
+		}
+		
 		while (isMoving) {
 			for (int i = 0; i < 8; i++) {
 				ledControl(green_pos[i], OFF);
@@ -443,6 +479,7 @@ void tLEDGreen (void *argument) {
 			osDelay(100);
 			ledControl(green_pos[j], OFF);
 		} 
+		
 		while(!isMoving){
 			for (int i = 0; i < 8; i++) {
 				ledControl(green_pos[i], ON);
@@ -470,17 +507,43 @@ void tLEDRed (void *argument) {
 
 void tAudio (void *argument) {
 	int introLength = sizeof(intro)/sizeof(intro[0]);
+	int battleLength = sizeof(battle)/sizeof(battle[0]);
+	int victoryLength = sizeof(victory)/sizeof(victory[0]);
+	int bCounter = 0;
+	int vCounter = 0;
+	osSemaphoreAcquire(connectIn, osWaitForever);
   for (;;) {
-		for (int i = 0; i < introLength; i++) {
-			TPM0->MOD = notes[intro[i]];
-			TPM0_C2V = notes[intro[i]] / 2;
-			osDelay(QUARTERBEAT*durationChoose[introDuration[i]]);
-			TPM0->MOD = 0;
-			TPM0_C2V = 0;
+		if (!isIntroPlayed){
+			for (int i = 0; i < introLength; i++) {
+				TPM2->MOD = notes[intro[i]];
+				TPM2_C0V = notes[intro[i]] / 2;
+				osDelay(QUARTERBEAT*durationChoose[introDuration[i]]);
+				TPM2->MOD = 0;
+				TPM2_C0V = 0;
+				osDelay(NOTEDELAY);
+			}
+			isIntroPlayed = true;
+			bCounter = 0;
+			vCounter = 0;
+		} else if (!isEnd) {
+			vCounter = 0;
+			TPM2->MOD = notes[battle[bCounter]];
+			TPM2_C0V = notes[battle[bCounter]] / 2;
+			osDelay(QUARTERBEAT*durationChoose[battleDuration[bCounter]]);
+			TPM2->MOD = 0;
+			TPM2_C0V = 0;
 			osDelay(NOTEDELAY);
+			bCounter = (bCounter + 1) % battleLength;
+		}	else {
+			bCounter = 0;
+			TPM2->MOD = notes[victory[vCounter]];
+			TPM2_C0V = notes[victory[vCounter]] / 2;
+			osDelay(QUARTERBEAT*durationChoose[victoryDuration[vCounter]]);
+			TPM2->MOD = 0;
+			TPM2_C0V = 0;
+			osDelay(NOTEDELAY);
+			vCounter = (vCounter + 1) % victoryLength;
 		}
-		//TPM0->MOD = 851;
-		//TPM0_C2V = 851/2;
 	}
 }
  
@@ -511,12 +574,13 @@ int main (void) {
  
   osKernelInitialize();
 	dataIn = osSemaphoreNew(1,0,NULL);
+	connectIn = osSemaphoreNew(1,0,NULL);
 	motorMsg = osMessageQueueNew(MSG_COUNT, sizeof(uint8_t), NULL);
   osThreadNew(tBrain, NULL, &normal1);
 	osThreadNew(tMotorControl, NULL, NULL);
 	osThreadNew(tLEDRed, NULL, NULL);
 	osThreadNew(tLEDGreen, NULL, NULL);
-	//osThreadNew(tAudio, NULL, NULL);	
+	osThreadNew(tAudio, NULL, NULL);	
   osKernelStart();                      
   for (;;) {}
 }
