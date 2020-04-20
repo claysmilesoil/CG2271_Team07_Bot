@@ -52,7 +52,7 @@
 uint8_t rx_data = 0x00;
 
 osSemaphoreId_t dataIn;
-osSemaphoreId_t connectIn;
+osEventFlagsId_t connectIn;
 
 const osThreadAttr_t normal1 = {
 	.priority = osPriorityNormal1
@@ -63,8 +63,7 @@ osMessageQueueId_t motorMsg;
 /* other variables and enums */
 volatile bool isMoving = false;
 volatile bool isBackward = false;
-bool isEstablishConnection = false;
-bool isIntroPlayed = false;
+bool isIntroPlayed = false; // not volatile to let intro play to completion
 volatile bool isEnd = false;
 
 typedef enum {OFF, ON} led_state;
@@ -73,28 +72,40 @@ typedef enum {OFF, ON} led_state;
 static int green_pos[] = {7,0,3,4,5,6,10,11};
 
 /* tune related data */
+// MOD values for each note
 static uint32_t notes[] = {
-        1430, // C4 - 262 Hz 0
-        1274, // D4 - 294 Hz  1
-        1135, // E4 - 330 Hz  2
-        1073, // F4 - 349 Hz  3
-        955, // G4 - 392 Hz  4
-				851, // A4 - 440 Hz  5
-				804, // A4s - 466 Hz  6
-        758, // B4 - 494 Hz  7
-				716, // C5 - 523 Hz  8
-				676, // C5s - 554 Hz  9
-				568, // E5 - 659 Hz  10
-				357, // C6 - 1046 Hz  11
-				0 // rest  12
+				0, // rest  0
+        1430, // C4 - 262 Hz 1
+        1274, // D4 - 294 Hz  2
+        1135, // E4 - 330 Hz  3
+        1073, // F4 - 349 Hz  4
+				1012, // F4s - 370 Hz  5
+        955, // G4 - 392 Hz  6
+				851, // A4 - 440 Hz  7
+				804, // A4s - 466 Hz  8
+        758, // B4 - 494 Hz  9
+				716, // C5 - 523 Hz  10
+				676, // C5s - 554 Hz  11
+				638, // D5 - 587 Hz  12
+				568, // E5 - 659 Hz  13
+				536, // F5 - 698Hz  14
+				506, // F5s - 740Hz  15
+				477, // G5 - 784Hz  16
+				425, // A5 - 880 Hz  17
+				378, // B5 - 988 Hz  18
+				357, // C6 - 1046 Hz  19
+				318, // D6 - 1175Hz  20
+				1352, // C4s - 277Hz  21
+				267// F6 - 1397Hz  22
 };
 
+// Pokemon GSC Champion/Red Intro
 static uint32_t intro[] = {
-	2,12,2,12, 2,12,2,1, 2,2,12,2,2,12, 2,2,12,2,2,7,
-	2,2,12,2,2,12, 2,2,12,2,2,7, 2,2,12,2,2,12, 2,2,12,2,2,9,
-	2,2,7,2,2,7, 2,2,7,2,2,1, 2,2,7,2,2,7, 2,2,7,2,2,3,
-	2,2,7,2,2,7, 2,2,7,2,2,1, 2,2,7,2,2,7, 2,2,8,2,2,9,
-	10,2, 10,10,6,7,8,9 
+	3,0,3,0, 3,0,3,2, 3,3,0,3,3,0, 3,3,0,3,3,9,
+	3,3,0,3,3,0, 3,3,0,3,3,9, 3,3,0,3,3,0, 3,3,0,3,3,10,
+	3,3,9,3,3,9, 3,3,9,3,3,2, 3,3,9,3,3,9, 3,3,9,3,3,4,
+	3,3,9,3,3,9, 3,3,9,3,3,2, 3,3,9,3,3,9, 3,3,10,3,3,11,
+	13,3, 13,13,8,9,10,11 
 };
 
 static uint8_t introDuration[] = {
@@ -105,23 +116,45 @@ static uint8_t introDuration[] = {
 	1,1, 1,2,4,4,4,4
 };
 
+// Pokemon GSC Champion/Red Theme (Loop)
 static uint32_t battle[] = {
-	0,1,2,3,4,5,7
+	13,9,13,12, 11,10,9,9, 9,13, 7,7,9,7,7,11,
+	13,9,13,12, 11,10,9,9,10, 13,17, 13,18,
+	13,13,0,13,0,13,0,13, 0,13,0,13,13,13, 13,13,0,13,0,13,0,13, 0,13,0,13,15,14,
+	13,3, 11,21, 3, 
+	4, 5, 13,12,11,10, 13,12,11,10,9,9, 
+	13,12,11,10, 13,12,11,10,9,9, 13, 18,13,13,
+	18, 17, 3,3,9,3,3,9, 3,3,9,3,3,7, 
+	3,3,9,3,3,9, 3,3,9,3,3,12, 13,13, 15,13, 
+	13,13, 15,17
 };
 
 static uint8_t battleDuration[] = {
-	1,1,1,1,1,1,1
+	5,5,3,3, 2,2,2,2, 1,1, 3,3,2,3,3,2,
+	5,5,3,3, 2,2,2,3,3, 1,1, 1,1, 
+	3,3,3,3,3,3,3,3, 3,3,3,3,2,2, 3,3,3,3,3,3,3,3, 3,3,3,3,2,2,
+	1,1, 1,1, 6,
+	0, 0, 2,2,2,2, 3,3,3,3,2,2, 
+	2,2,2,2, 3,3,3,3,2,2, 0, 1,2,2,
+	0, 0, 3,3,2,3,3,2, 3,3,2,3,3,2,
+	3,3,2,3,3,2, 3,3,2,3,3,2, 1,1, 1,1,
+	1,1, 1,1
 };
 
+// Pokemon GSC Victory! (Gym Battle)
 static uint32_t victory[] = {
-	7,5,4,3,2,1,0
+	17,14,17,20,17,20, 22,14,17,20,
+	12,10,9,0,10,9,7,0, 9,7,6,4,7,7, 12,10,9,0,10,9,7,0, 9,7,6,4,2,0,18,19,
+	20,19,18,0,19,18,17,0, 18,17,16,14,17,17, 20,19,18,0,19,18,17,0, 18,17,16,14,12,0
 };
 
 static uint8_t victoryDuration[] = {
-	1,1,1,1,1,1,1
+	5,4,4,5,4,4, 5,4,4,1,
+	3,3,3,3,3,3,3,3, 3,3,3,3,2,2, 3,3,3,3,3,3,3,3, 3,3,3,3,2,3,4,4,
+	3,3,3,3,3,3,3,3, 3,3,3,3,2,2, 3,3,3,3,3,3,3,3, 3,3,3,3,2,2
 }; 
 
-static float durationChoose[] = {4, 2, 1, 0.5, 0.25};
+static float durationChoose[] = {4, 2, 1, 0.5, 0.25, 1.5, 8};
 
 /*----------------------------------------------------------------------------
  * INITIALIZATION
@@ -180,7 +213,7 @@ static float durationChoose[] = {4, 2, 1, 0.5, 0.25};
 	SIM->SOPT2 &= ~SIM_SOPT2_TPMSRC_MASK;
 	SIM->SOPT2 |= SIM_SOPT2_TPMSRC(1); // clock source
 	
-	TPM0->MOD = 100; 
+	TPM0->MOD = 100;  // using 30kHz
 	TPM1->MOD = 100;
 	
 	TPM0->SC &= ~((TPM_SC_CMOD_MASK) | (TPM_SC_PS_MASK));
@@ -221,12 +254,6 @@ static float durationChoose[] = {4, 2, 1, 0.5, 0.25};
  
 void initBuzzer(){
 	SIM_SCGC5 |= SIM_SCGC5_PORTB_MASK;
-
-	// debug
-	/*PORTB->PCR[18] &= ~PORT_PCR_MUX_MASK;
-	PORTB->PCR[18] |= PORT_PCR_MUX(1);
-	PTB->PDDR |= MASK(18);
-	PTB->PSOR = MASK(18); // for debug */
 	
 	PORTB->PCR[PTB2_Pin] &= ~PORT_PCR_MUX_MASK; // tpm2 ch0
 	PORTB->PCR[PTB2_Pin] |= PORT_PCR_MUX(3);
@@ -398,8 +425,7 @@ void tBrain (void *argument) {
   for (;;) {
 		osSemaphoreAcquire(dataIn, osWaitForever);
 		if (START_MUSIC(rx_data)) {
-			osSemaphoreRelease(connectIn);
-			isEstablishConnection = true;
+			osEventFlagsSet(connectIn, 0x00000003);
 			isIntroPlayed = false;
 			isEnd = false;
 		} else if (RUN_MUSIC(rx_data)) {
@@ -453,38 +479,36 @@ void tMotorControl (void *argument) {
 
 void tLEDGreen (void *argument) {
 	int j = 0;
+	for (int i = 0; i < 8; i++) {
+		ledControl(green_pos[i], ON);
+	}
+	osEventFlagsWait(connectIn, 0x00000001, osFlagsWaitAny, osWaitForever);
+	for (int blinkCount = 0; blinkCount < 2; blinkCount++) {
+		for (int i = 0; i < 8; i++) {
+			ledControl(green_pos[i], OFF);
+		}
+		osDelay(500);
+		for (int i = 0; i < 8; i++) {
+			ledControl(green_pos[i], ON);
+		}
+		osDelay(500);
+	}
 	for (;;) {
-		if(isEstablishConnection) {
-			int blinkCount = 0;
-			while (blinkCount < 2) {
-				for (int i = 0; i < 8; i++) {
-					ledControl(green_pos[i], ON);
-				}
-				osDelay(500);
+			while (isMoving) {
 				for (int i = 0; i < 8; i++) {
 					ledControl(green_pos[i], OFF);
 				}
-				osDelay(500);
-				blinkCount++;
-			}
-			isEstablishConnection = false;
-		}
+				j = (j + 1) % 8;
+				ledControl(green_pos[j], ON);
+				osDelay(100);
+				ledControl(green_pos[j], OFF);
+			} 
 		
-		while (isMoving) {
-			for (int i = 0; i < 8; i++) {
-				ledControl(green_pos[i], OFF);
+			while(!isMoving){
+				for (int i = 0; i < 8; i++) {
+					ledControl(green_pos[i], ON);
+				}
 			}
-			j = (j + 1) % 8;
-			ledControl(green_pos[j], ON);
-			osDelay(100);
-			ledControl(green_pos[j], OFF);
-		} 
-		
-		while(!isMoving){
-			for (int i = 0; i < 8; i++) {
-				ledControl(green_pos[i], ON);
-			}
-		}
 	}
 }
 
@@ -511,7 +535,7 @@ void tAudio (void *argument) {
 	int victoryLength = sizeof(victory)/sizeof(victory[0]);
 	int bCounter = 0;
 	int vCounter = 0;
-	osSemaphoreAcquire(connectIn, osWaitForever);
+	osEventFlagsWait(connectIn, 0x00000002, osFlagsWaitAny, osWaitForever);
   for (;;) {
 		if (!isIntroPlayed){
 			for (int i = 0; i < introLength; i++) {
@@ -574,7 +598,7 @@ int main (void) {
  
   osKernelInitialize();
 	dataIn = osSemaphoreNew(1,0,NULL);
-	connectIn = osSemaphoreNew(1,0,NULL);
+	connectIn = osEventFlagsNew(NULL);
 	motorMsg = osMessageQueueNew(MSG_COUNT, sizeof(uint8_t), NULL);
   osThreadNew(tBrain, NULL, &normal1);
 	osThreadNew(tMotorControl, NULL, NULL);
