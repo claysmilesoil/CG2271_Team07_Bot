@@ -1,0 +1,26 @@
+Data packet format
+
+forward
+0000 1000 (8)
+stop forward
+0000 0000 (0)
+
+backward
+0000 1001 (9)
+stop back
+0000 0001 (1)
+
+left
+0000 1010 (10)
+left stop
+0000 0010 (2)
+
+right
+0000 1011 (11)
+right stop
+0000 0011 (3)
+
+music
+start tune: 1000 0000 (128) (includes the 2 green led flash)
+running music: 0100 0000 (64) (used for debug, normally plays right after start tune ends)
+victory tune: 0010 0000 (32)
