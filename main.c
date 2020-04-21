@@ -58,10 +58,9 @@ const osThreadAttr_t normal1 = {
 	.priority = osPriorityNormal1
 };
 
-osMessageQueueId_t motorMsg;
-
 /* other variables and enums */
 volatile bool isMoving = false;
+volatile bool isForward = false;
 volatile bool isBackward = false;
 bool isIntroPlayed = false; // not volatile to let intro play to completion
 volatile bool isEnd = false;
@@ -96,7 +95,7 @@ static uint32_t notes[] = {
 				357, // C6 - 1046 Hz  19
 				318, // D6 - 1175Hz  20
 				1352, // C4s - 277Hz  21
-				267// F6 - 1397Hz  22
+				267  // F6 - 1397Hz  22
 };
 
 // Pokemon GSC Champion/Red Intro
@@ -424,6 +423,7 @@ void stopRight() {
 void tBrain (void *argument) {
   for (;;) {
 		osSemaphoreAcquire(dataIn, osWaitForever);
+		
 		if (START_MUSIC(rx_data)) {
 			osEventFlagsSet(connectIn, 0x00000003);
 			isIntroPlayed = false;
@@ -434,43 +434,46 @@ void tBrain (void *argument) {
 		} else if (END_MUSIC(rx_data)) {
 			isEnd = true;
 		} else {
-			if (MOVE_MASK(rx_data)) {
-				isMoving = true;
-			} else {
-				isMoving = false;
+			
+			if (DIRECTION_MASK(rx_data) == MOVE_FORWARD) {
+				isForward = !isForward;
 			}
 			if (DIRECTION_MASK(rx_data) == MOVE_BACKWARD) {
 				isBackward = !isBackward;
 			}
+			if (MOVE_MASK(rx_data) || isForward || isBackward) {
+				isMoving = true;
+			} else {
+				isMoving = false;
+			}
 	
-			osMessageQueuePut(motorMsg, &rx_data, NULL, 0); 
+			osEventFlagsSet(connectIn, 0x00000004);
 		} 
 	}
 }
 
 void tMotorControl (void *argument) {
-	uint8_t rx;
   for (;;) {
-		osMessageQueueGet(motorMsg, &rx, NULL, osWaitForever);
-
-		if (MOVE_MASK(rx)) {
-			if (DIRECTION_MASK(rx) == MOVE_FORWARD) {
+		osEventFlagsWait(connectIn, 0x00000004, osFlagsWaitAll, osWaitForever);
+		
+		if (MOVE_MASK(rx_data)) {
+			if (DIRECTION_MASK(rx_data) == MOVE_FORWARD) {
 				moveForward();
-			} else if (DIRECTION_MASK(rx) == MOVE_BACKWARD) {
+			} else if (DIRECTION_MASK(rx_data) == MOVE_BACKWARD) {
 				moveBackward();
-			} else if (DIRECTION_MASK(rx) == MOVE_LEFT) {
+			} else if (DIRECTION_MASK(rx_data) == MOVE_LEFT) {
 				moveLeft();
-			} else if (DIRECTION_MASK(rx) == MOVE_RIGHT) {
+			} else if (DIRECTION_MASK(rx_data) == MOVE_RIGHT) {
 				moveRight();
 			}
 		} else {
-			if (DIRECTION_MASK(rx) == MOVE_FORWARD) {
+			if (DIRECTION_MASK(rx_data) == MOVE_FORWARD) {
 				stopForward();
-			} else if (DIRECTION_MASK(rx) == MOVE_BACKWARD) {
+			} else if (DIRECTION_MASK(rx_data) == MOVE_BACKWARD) {
 				stopBackward();
-			} else if (DIRECTION_MASK(rx) == MOVE_LEFT) {
+			} else if (DIRECTION_MASK(rx_data) == MOVE_LEFT) {
 				stopLeft();
-			} else if (DIRECTION_MASK(rx) == MOVE_RIGHT) {
+			} else if (DIRECTION_MASK(rx_data) == MOVE_RIGHT) {
 				stopRight();
 			}
 		} 
@@ -479,10 +482,12 @@ void tMotorControl (void *argument) {
 
 void tLEDGreen (void *argument) {
 	int j = 0;
+	bool flash = false;
 	for (int i = 0; i < 8; i++) {
 		ledControl(green_pos[i], ON);
 	}
 	osEventFlagsWait(connectIn, 0x00000001, osFlagsWaitAny, osWaitForever);
+	// connection established LED flashes
 	for (int blinkCount = 0; blinkCount < 2; blinkCount++) {
 		for (int i = 0; i < 8; i++) {
 			ledControl(green_pos[i], OFF);
@@ -493,22 +498,23 @@ void tLEDGreen (void *argument) {
 		}
 		osDelay(500);
 	}
+	
 	for (;;) {
-			while (isMoving) {
-				for (int i = 0; i < 8; i++) {
-					ledControl(green_pos[i], OFF);
-				}
-				j = (j + 1) % 8;
-				ledControl(green_pos[j], ON);
-				osDelay(100);
-				ledControl(green_pos[j], OFF);
-			} 
-		
-			while(!isMoving){
-				for (int i = 0; i < 8; i++) {
-					ledControl(green_pos[i], ON);
-				}
+		while (isMoving) {
+			for (int i = 0; i < 8; i++) {
+				ledControl(green_pos[i], OFF);				
 			}
+			j = (j + 1) % 8;
+			ledControl(green_pos[j], ON);
+			osDelay(100);
+			ledControl(green_pos[j], OFF);
+		} 
+		
+		while(!isMoving){
+			for (int i = 0; i < 8; i++) {
+				ledControl(green_pos[i], ON);
+			}
+		}
 	}
 }
 
@@ -599,9 +605,8 @@ int main (void) {
   osKernelInitialize();
 	dataIn = osSemaphoreNew(1,0,NULL);
 	connectIn = osEventFlagsNew(NULL);
-	motorMsg = osMessageQueueNew(MSG_COUNT, sizeof(uint8_t), NULL);
   osThreadNew(tBrain, NULL, &normal1);
-	osThreadNew(tMotorControl, NULL, NULL);
+	osThreadNew(tMotorControl, NULL, &normal1);
 	osThreadNew(tLEDRed, NULL, NULL);
 	osThreadNew(tLEDGreen, NULL, NULL);
 	osThreadNew(tAudio, NULL, NULL);	
